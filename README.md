@@ -9,18 +9,25 @@ Dice-based TODO application inspired by [Paper Apps TODO](https://gladdendesign.
 - Roll dice to determine work duration (1-5 = 10x minutes, 6 = 10-minute break)
 - Countdown timer that persists across sessions
 - Mark tasks as complete
-- All state saved automatically to `~/.paper_todo_state.json`
+- All state saved automatically to `~/.local/share/paper-todo/state.json` (XDG Base Directory compliant)
 
 ## Installation
 
 ```bash
 # Install dependencies
-uv venv
-source .venv/bin/activate
-uv pip install -e .
+uv sync
 
 # Run the app
-paper-todo
+uv run paper-todo
+```
+
+## Development
+
+```bash
+uv run pytest tests/ -v
+
+# Run tests with coverage
+uv run pytest tests/ -v --cov=paper_todo --cov-report=term-missing
 ```
 
 ## Usage

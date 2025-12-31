@@ -3,13 +3,50 @@ from datetime import datetime
 
 from textual import on, work
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Button, Footer, Header, Input, Label, Static
 from textual.binding import Binding
+from textual.containers import Container, Horizontal, Vertical
+from textual.screen import ModalScreen
+from textual.widgets import Button, Footer, Header, Input, Label, Static
 
 from paper_todo.dice import get_dice_face, roll_die
-from paper_todo.models import MAX_TASKS, TASK_CHAR_LIMIT, AppState
+from paper_todo.models import MAX_TASKS, TASK_CHAR_LIMIT, AppState, Task, TimerState
 from paper_todo.storage import load_state, save_state
+
+
+def _format_task_label(index: int, task: Task, is_active: bool) -> str:
+    status = "✓" if task.completed else " "
+    text = task.text or "(empty)"
+    return f"[{index + 1}] [{status}] {text}"
+
+
+def _format_timer_time(seconds: int) -> str:
+    minutes = seconds // 60
+    secs = seconds % 60
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _get_timer_status(timer: TimerState) -> str:
+    if timer.running:
+        task_info = "Break time!" if timer.is_break else f"Task {(timer.task_index or 0) + 1}"
+        return f"▶ {task_info}"
+    elif timer.remaining_seconds > 0:
+        return "⏸ Paused"
+    else:
+        return "Ready to roll!"
+
+
+def _roll_for_incomplete_task(incomplete_indices: list[int]) -> int:
+    valid_task_numbers = [i + 1 for i in incomplete_indices]
+    roll = roll_die()
+    while roll not in valid_task_numbers:
+        roll = roll_die()
+    return roll - 1
+
+
+def _calculate_duration_and_break(roll: int) -> tuple[int, bool]:
+    if roll == 6:
+        return (10, True)
+    return (roll * 10, False)
 
 
 class TaskList(Static):
@@ -20,24 +57,16 @@ class TaskList(Static):
     def compose(self) -> ComposeResult:
         yield Label("[bold cyan]📝 Your Tasks (max 6)[/bold cyan]")
         for i in range(MAX_TASKS):
-            task = self.state.tasks[i]
-            status = "✓" if task.completed else " "
-            text = task.text or "(empty)"
-            highlight = "on blue" if self.state.timer.task_index == i and self.state.timer.running else ""
-            yield Label(f"[{i + 1}] [{status}] {text}", id=f"task-{i}", classes=highlight)
+            is_active = self.state.timer.task_index == i and self.state.timer.running
+            highlight = "on blue" if is_active else ""
+            yield Label(_format_task_label(i, self.state.tasks[i], is_active), id=f"task-{i}", classes=highlight)
 
     def refresh_tasks(self) -> None:
         for i in range(MAX_TASKS):
-            task = self.state.tasks[i]
-            status = "✓" if task.completed else " "
-            text = task.text or "(empty)"
-            highlight = "reverse" if self.state.timer.task_index == i and self.state.timer.running else ""
+            is_active = self.state.timer.task_index == i and self.state.timer.running
             label = self.query_one(f"#task-{i}", Label)
-            label.update(f"[{i + 1}] [{status}] {text}")
-            if highlight:
-                label.styles.background = "blue"
-            else:
-                label.styles.background = "transparent"
+            label.update(_format_task_label(i, self.state.tasks[i], is_active))
+            label.styles.background = "blue" if is_active else "transparent"
 
 
 class DiceDisplay(Static):
@@ -65,21 +94,8 @@ class TimerDisplay(Static):
         yield Label("", id="timer-status")
 
     def refresh_timer(self) -> None:
-        timer = self.state.timer
-        minutes = timer.remaining_seconds // 60
-        seconds = timer.remaining_seconds % 60
-        time_label = self.query_one("#timer-time", Label)
-        status_label = self.query_one("#timer-status", Label)
-
-        time_label.update(f"{minutes:02d}:{seconds:02d}")
-
-        if timer.running:
-            task_info = "Break time!" if timer.is_break else f"Task {(timer.task_index or 0) + 1}"
-            status_label.update(f"▶ {task_info}")
-        elif timer.remaining_seconds > 0:
-            status_label.update("⏸ Paused")
-        else:
-            status_label.update("Ready to roll!")
+        self.query_one("#timer-time", Label).update(_format_timer_time(self.state.timer.remaining_seconds))
+        self.query_one("#timer-status", Label).update(_get_timer_status(self.state.timer))
 
 
 class PaperTodoApp(App):
@@ -120,7 +136,12 @@ class PaperTodoApp(App):
     """
 
     BINDINGS = [
-        Binding("1,2,3,4,5,6", "edit_task", "Edit task", show=False),
+        Binding("1", "edit_task(1)", "Edit task 1", show=False),
+        Binding("2", "edit_task(2)", "Edit task 2", show=False),
+        Binding("3", "edit_task(3)", "Edit task 3", show=False),
+        Binding("4", "edit_task(4)", "Edit task 4", show=False),
+        Binding("5", "edit_task(5)", "Edit task 5", show=False),
+        Binding("6", "edit_task(6)", "Edit task 6", show=False),
         Binding("r", "roll_task", "Roll for task", show=True),
         Binding("t", "roll_time", "Roll for time", show=True),
         Binding("space", "toggle_timer", "Start/Pause", show=True),
@@ -163,10 +184,10 @@ class PaperTodoApp(App):
     def on_unmount(self) -> None:
         save_state(self.state)
 
-    def action_edit_task(self, key: str) -> None:
-        task_num = int(key) - 1
-        if 0 <= task_num < MAX_TASKS:
-            self.edit_task(task_num)
+    def action_edit_task(self, task_num: int) -> None:
+        task_index = task_num - 1
+        if 0 <= task_index < MAX_TASKS:
+            self.edit_task(task_index)
 
     def edit_task(self, task_index: int) -> None:
         async def get_task_input() -> None:
@@ -181,61 +202,46 @@ class PaperTodoApp(App):
 
         self.run_worker(get_task_input())
 
-    @work(exclusive=True)
-    async def action_roll_task(self) -> None:
-        incomplete = self.state.get_incomplete_task_indices()
-        if not incomplete:
+    async def _animate_and_roll_task(self) -> int | None:
+        if not (incomplete := self.state.get_incomplete_task_indices()):
             self.notify("No incomplete tasks to roll for!", severity="warning")
-            return
+            return None
 
         for _ in range(10):
-            value = roll_die()
-            self.dice_display.set_value(value)
+            self.dice_display.set_value(roll_die())
             await asyncio.sleep(0.1)
 
-        final_roll = roll_die()
-        while final_roll not in [i + 1 for i in incomplete]:
-            final_roll = roll_die()
+        selected_index = _roll_for_incomplete_task(incomplete)
+        self.dice_display.set_value(selected_index + 1)
+        return selected_index
 
-        self.dice_display.set_value(final_roll)
-        selected_index = final_roll - 1
-        self.notify(f"Work on task {final_roll}: {self.state.tasks[selected_index].text}")
+    @work(exclusive=True)
+    async def action_roll_task(self) -> None:
+        if (selected_index := await self._animate_and_roll_task()) is not None:
+            self.notify(f"Work on task {selected_index + 1}: {self.state.tasks[selected_index].text}")
 
     @work(exclusive=True)
     async def action_roll_time(self) -> None:
         for _ in range(10):
-            value = roll_die()
-            self.dice_display.set_value(value)
+            self.dice_display.set_value(roll_die())
             await asyncio.sleep(0.1)
 
         final_roll = roll_die()
         self.dice_display.set_value(final_roll)
+        duration_minutes, is_break = _calculate_duration_and_break(final_roll)
 
-        if final_roll == 6:
-            duration_minutes = 10
-            is_break = True
+        if is_break:
             self.notify(f"Rolled {final_roll}: 10 minute break!")
             self.state.timer.start(None, duration_minutes, is_break=True)
         else:
-            duration_minutes = final_roll * 10
             self.notify(f"Rolled {final_roll}: {duration_minutes} minutes")
-
-            incomplete = self.state.get_incomplete_task_indices()
-            if incomplete:
+            if incomplete := self.state.get_incomplete_task_indices():
                 await asyncio.sleep(0.5)
-                await self.action_roll_task()
-                if self.state.timer.task_index is None and incomplete:
-                    for _ in range(10):
-                        value = roll_die()
-                        await asyncio.sleep(0.1)
-                    task_roll = roll_die()
-                    while task_roll not in [i + 1 for i in incomplete]:
-                        task_roll = roll_die()
-                    selected_index = task_roll - 1
+                if (selected_index := await self._animate_and_roll_task()) is not None:
+                    self.notify(f"Work on task {selected_index + 1}: {self.state.tasks[selected_index].text}")
                     self.state.timer.start(selected_index, duration_minutes, is_break=False)
                 else:
-                    selected_index = incomplete[0]
-                    self.state.timer.start(selected_index, duration_minutes, is_break=False)
+                    self.state.timer.start(None, duration_minutes, is_break=True)
             else:
                 self.state.timer.start(None, duration_minutes, is_break=True)
 
@@ -291,16 +297,6 @@ class PaperTodoApp(App):
             save_state(self.state)
         else:
             self.notify("No active task to complete", severity="warning")
-
-
-class TaskInputScreen(Static):
-    def __init__(self, task_index: int, current_text: str) -> None:
-        super().__init__()
-        self.task_index = task_index
-        self.current_text = current_text
-
-
-from textual.screen import ModalScreen
 
 
 class TaskInputScreen(ModalScreen[str | None]):

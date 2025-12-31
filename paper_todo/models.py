@@ -1,9 +1,6 @@
 from datetime import datetime
-from pathlib import Path
-from typing import Literal
 
 from pydantic import BaseModel, Field
-
 
 MAX_TASKS = 6
 TASK_CHAR_LIMIT = 60
@@ -15,6 +12,10 @@ class Task(BaseModel):
 
     def toggle(self) -> None:
         self.completed = not self.completed
+
+
+def _is_task_incomplete(task: Task) -> bool:
+    return bool(task.text and not task.completed)
 
 
 class TimerState(BaseModel):
@@ -62,4 +63,8 @@ class AppState(BaseModel):
     timer: TimerState = Field(default_factory=TimerState)
 
     def get_incomplete_task_indices(self) -> list[int]:
-        return [i for i, task in enumerate(self.tasks) if task.text and not task.completed]
+        return [i for i, task in enumerate(self.tasks) if _is_task_incomplete(task)]
+
+
+def get_incomplete_task_indices(tasks: list[Task]) -> list[int]:
+    return [i for i, task in enumerate(tasks) if _is_task_incomplete(task)]
