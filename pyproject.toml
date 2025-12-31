@@ -1,0 +1,19 @@
+[project]
+name = "paper-todo-tui"
+version = "0.1.0"
+description = "Dice-based TODO TUI inspired by Paper Apps"
+requires-python = ">=3.11"
+dependencies = [
+    "textual>=0.47.0",
+    "pydantic>=2.0.0",
+]
+
+[project.scripts]
+paper-todo = "paper_todo.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["paper_todo"]
