@@ -62,40 +62,62 @@ class TaskList(Static):
             label.update(_format_task_label(i, self.state.tasks[i], is_active))
             label.styles.background = "blue" if is_active else "transparent"
 
-
-class DiceDisplay(Static):
-    def __init__(self) -> None:
-        super().__init__()
-        self.current_value = 1
-
-    def compose(self) -> ComposeResult:
-        yield Label("[bold yellow]🎲 Dice[/bold yellow]")
-        yield Label(get_dice_face(1), id="dice-face")
-
-    def set_value(self, value: int) -> None:
-        self.current_value = value
-        self.query_one("#dice-face", Label).update(get_dice_face(value))
+            if self.state.timer.running and not is_active:
+                label.add_class("inactive-task")
+            else:
+                label.remove_class("inactive-task")
 
 
-class TimerDisplay(Static):
+class RightPanel(Static):
     def __init__(self, state: AppState) -> None:
         super().__init__()
         self.state = state
+        self.task_dice_value = 1
+        self.duration_dice_value = 1
 
     def compose(self) -> ComposeResult:
-        yield Label("[bold green]⏱️  Timer[/bold green]")
-        yield Label("--:--", id="timer-time")
-        yield Label("", id="timer-status")
+        with Vertical(id="right-panel-content"):
+            with Horizontal(id="dice-section"):
+                with Vertical(id="task-dice-container"):
+                    yield Label("[bold cyan]Task #[/bold cyan]", id="task-dice-label")
+                    yield Label(get_dice_face(1), id="task-dice-face")
+                with Vertical(id="duration-dice-container"):
+                    yield Label("[bold yellow]Duration[/bold yellow]", id="duration-dice-label")
+                    yield Label(get_dice_face(1), id="duration-dice-face")
+            with Vertical(id="timer-section"):
+                yield Label("[bold green]⏱️  Timer[/bold green]")
+                yield Label("--:--", id="timer-time")
+                yield Label("", id="timer-status")
+
+    def set_task_dice_value(self, value: int) -> None:
+        self.task_dice_value = value
+        self.query_one("#task-dice-face", Label).update(get_dice_face(value))
+
+    def set_duration_dice_value(self, value: int) -> None:
+        self.duration_dice_value = value
+        self.query_one("#duration-dice-face", Label).update(get_dice_face(value))
 
     def refresh_timer(self) -> None:
         self.query_one("#timer-time", Label).update(_format_timer_time(self.state.timer.remaining_seconds))
         self.query_one("#timer-status", Label).update(_get_timer_status(self.state.timer))
+
+    def refresh_dimming(self) -> None:
+        dice_section = self.query_one("#dice-section")
+        if self.state.timer.running:
+            dice_section.add_class("dimmed")
+        else:
+            dice_section.remove_class("dimmed")
 
 
 class PaperTodoApp(App):
     CSS = """
     Screen {
         background: $surface;
+    }
+
+    #left-column {
+        width: 3fr;
+        height: 100%;
     }
 
     TaskList {
@@ -105,20 +127,42 @@ class PaperTodoApp(App):
         height: auto;
     }
 
-    DiceDisplay {
+    RightPanel {
         border: solid yellow;
         padding: 1;
         margin: 1;
-        width: 40;
         height: auto;
+        width: 2fr;
     }
 
-    TimerDisplay {
-        border: solid blue;
-        padding: 1;
-        margin: 1;
-        width: 40;
+    #right-panel-content {
         height: auto;
+        width: 100%;
+    }
+
+    #dice-section {
+        width: 100%;
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    #task-dice-container {
+        width: 1fr;
+        height: auto;
+        padding-right: 1;
+    }
+
+    #duration-dice-container {
+        width: 1fr;
+        height: auto;
+        padding-left: 1;
+    }
+
+    #timer-section {
+        width: 100%;
+        height: auto;
+        border-top: solid blue;
+        padding-top: 1;
     }
 
     #help {
@@ -126,6 +170,14 @@ class PaperTodoApp(App):
         padding: 1;
         margin: 1;
         height: auto;
+    }
+
+    .dimmed {
+        opacity: 0.3;
+    }
+
+    .inactive-task {
+        opacity: 0.5;
     }
     """
 
@@ -146,8 +198,7 @@ class PaperTodoApp(App):
         super().__init__()
         self.state = load_state()
         self.task_list: TaskList | None = None
-        self.dice_display: DiceDisplay | None = None
-        self.timer_display: TimerDisplay | None = None
+        self.right_panel: RightPanel | None = None
         self.help_widget: Static | None = None
         self.timer_worker = None
 
@@ -158,16 +209,13 @@ class PaperTodoApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal():
-            with Vertical():
+            with Vertical(id="left-column"):
                 self.task_list = TaskList(self.state)
                 yield self.task_list
                 self.help_widget = Static(self._get_help_text(), id="help")
                 yield self.help_widget
-            with Vertical():
-                self.dice_display = DiceDisplay()
-                yield self.dice_display
-                self.timer_display = TimerDisplay(self.state)
-                yield self.timer_display
+            self.right_panel = RightPanel(self.state)
+            yield self.right_panel
         yield Footer()
 
     def _get_help_text(self) -> str:
@@ -178,10 +226,15 @@ class PaperTodoApp(App):
     def _refresh_help(self) -> None:
         if self.help_widget:
             self.help_widget.update(self._get_help_text())
+            if self.is_timer_active:
+                self.help_widget.add_class("dimmed")
+            else:
+                self.help_widget.remove_class("dimmed")
 
     def on_mount(self) -> None:
         if self.state.timer.running:
-            self.timer_display.refresh_timer()
+            self.right_panel.refresh_timer()
+            self.right_panel.refresh_dimming()
             self._refresh_help()
             self.start_timer_worker()
 
@@ -217,13 +270,24 @@ class PaperTodoApp(App):
 
         self.run_worker(get_task_input())
 
-    async def _animate_dice(self, options: list[int]) -> int:
-        for _ in range(10):
+    async def _animate_task_dice(self, options: list[int]) -> int:
+        for i in range(20):
             value = roll_from_options(options)
-            self.dice_display.set_value(value)
-            await asyncio.sleep(0.1)
+            self.right_panel.set_task_dice_value(value)
+            delay = 0.05 + (i * 0.01)
+            await asyncio.sleep(delay)
         final = roll_from_options(options)
-        self.dice_display.set_value(final)
+        self.right_panel.set_task_dice_value(final)
+        return final
+
+    async def _animate_duration_dice(self, options: list[int]) -> int:
+        for i in range(20):
+            value = roll_from_options(options)
+            self.right_panel.set_duration_dice_value(value)
+            delay = 0.05 + (i * 0.01)
+            await asyncio.sleep(delay)
+        final = roll_from_options(options)
+        self.right_panel.set_duration_dice_value(final)
         return final
 
     @work(exclusive=True)
@@ -238,14 +302,14 @@ class PaperTodoApp(App):
             return
 
         task_options = [i + 1 for i in incomplete]
-        task_roll = await self._animate_dice(task_options)
+        task_roll = await self._animate_task_dice(task_options)
         task_index = task_roll - 1
         task_text = self.state.tasks[task_index].text
         self.notify(f"Task {task_roll}: {task_text}")
 
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.8)
 
-        duration_roll = await self._animate_dice([1, 2, 3, 4, 5, 6])
+        duration_roll = await self._animate_duration_dice([1, 2, 3, 4, 5, 6])
         duration_minutes, is_break = _calculate_duration_and_break(duration_roll)
 
         if is_break:
@@ -266,8 +330,9 @@ class PaperTodoApp(App):
         if self.state.timer.running:
             self.start_timer_worker()
             self._refresh_help()
+            self.right_panel.refresh_dimming()
 
-        self.timer_display.refresh_timer()
+        self.right_panel.refresh_timer()
         self.task_list.refresh_tasks()
         save_state(self.state)
 
@@ -279,7 +344,7 @@ class PaperTodoApp(App):
         while self.state.timer.running and self.state.timer.remaining_seconds > 0:
             await asyncio.sleep(1)
             self.state.timer.tick()
-            self.timer_display.refresh_timer()
+            self.right_panel.refresh_timer()
 
             if self.state.timer.should_warn_ten_percent() and not self.state.timer.warned_ten_percent:
                 self.state.timer.warned_ten_percent = True
@@ -296,7 +361,8 @@ class PaperTodoApp(App):
             self.state.timer.reset()
             self.timer_worker = None
             self._refresh_help()
-            self.timer_display.refresh_timer()
+            self.right_panel.refresh_timer()
+            self.right_panel.refresh_dimming()
             self.task_list.refresh_tasks()
             save_state(self.state)
 
@@ -327,7 +393,8 @@ class PaperTodoApp(App):
 
         self.state.timer.reset()
         self._refresh_help()
-        self.timer_display.refresh_timer()
+        self.right_panel.refresh_timer()
+        self.right_panel.refresh_dimming()
         self.task_list.refresh_tasks()
         save_state(self.state)
 
