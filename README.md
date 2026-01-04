@@ -1,15 +1,13 @@
 # Paper TODO TUI
 
-Dice-based TODO application inspired by [Paper Apps TODO](https://gladdendesign.com/products/paper-apps-todo).
+Dice-based TODO application inspired by [Paper Apps TODO](https://gladdendesign.com/products/paper-apps-todo)
 
 ## Features
 
-- Track up to 6 tasks at a time
-- Roll dice to randomly select which task to work on
+- Roll dice to randomly select one of six tasks to work on
 - Roll dice to determine work duration (1-5 = 10x minutes, 6 = 10-minute break)
 - Countdown timer that persists across sessions
-- Mark tasks as complete
-- All state saved automatically to `~/.local/share/paper-todo/state.json` (XDG Base Directory compliant)
+- All state saved automatically to `~/.local/share/paper-todo/state.json` (or XDG Base Directory compliant)
 
 ## Installation
 
@@ -24,22 +22,13 @@ uv run paper-todo
 ## Development
 
 ```bash
-uv run pytest tests/ -v
+uv run pytest -v
 
 # Run tests with coverage
-uv run pytest tests/ -v --cov=paper_todo --cov-report=term-missing
+uv run pytest -v --cov=paper_todo --cov-report=term-missing
 ```
 
 ## Usage
-
-### Keyboard Shortcuts
-
-- **1-6**: Edit task by number
-- **R**: Roll dice to select a task
-- **T**: Roll dice for time duration
-- **Space**: Start/pause timer
-- **C**: Mark current task as complete
-- **Q**: Quit
 
 ### Workflow
 
@@ -48,12 +37,12 @@ uv run pytest tests/ -v --cov=paper_todo --cov-report=term-missing
    - Roll 1-5: Work for (roll × 10) minutes on a random task
    - Roll 6: Take a 10-minute break
 3. Press **Space** to start the timer
-4. Press **C** to mark the current task complete when done
+4. Press **C** to mark the current task complete when done or **E** to end early
 5. Repeat!
 
 ## How It Works
 
-The dice-based approach adds an element of randomness and fun to task management:
+Adapted from the sold out <https://gladdendesign.com/products/paper-apps-todo>, the dice-based approach adds an element of randomness and fun to task management:
 
 - Rolling for time creates variety in your work sessions
 - Rolling for tasks helps you avoid decision paralysis

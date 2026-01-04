@@ -45,5 +45,11 @@ def roll_die() -> int:
     return random.randint(1, 6)
 
 
+def roll_from_options(options: list[int]) -> int:
+    if not options:
+        return roll_die()
+    return random.choice(options)
+
+
 def get_dice_face(value: int) -> str:
     return DICE_FACES.get(value, DICE_FACES[1])

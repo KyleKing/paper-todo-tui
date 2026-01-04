@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+import subprocess
 
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -8,9 +8,14 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Header, Input, Label, Static
 
-from paper_todo.dice import get_dice_face, roll_die
-from paper_todo.models import MAX_TASKS, TASK_CHAR_LIMIT, AppState, Task, TimerState
+from paper_todo.dice import get_dice_face, roll_die, roll_from_options
+from paper_todo.models import MAX_TASKS, TASK_CHAR_LIMIT, AppState, Task
 from paper_todo.storage import load_state, save_state
+
+
+def _send_notification(title: str, message: str, *, sound: str = "Glass") -> None:
+    script = f'display notification "{message}" with title "{title}" sound name "{sound}"'
+    subprocess.run(["osascript", "-e", script], check=False, capture_output=True)
 
 
 def _format_task_label(index: int, task: Task, is_active: bool) -> str:
@@ -25,22 +30,11 @@ def _format_timer_time(seconds: int) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
-def _get_timer_status(timer: TimerState) -> str:
+def _get_timer_status(timer) -> str:
     if timer.running:
         task_info = "Break time!" if timer.is_break else f"Task {(timer.task_index or 0) + 1}"
         return f"▶ {task_info}"
-    elif timer.remaining_seconds > 0:
-        return "⏸ Paused"
-    else:
-        return "Ready to roll!"
-
-
-def _roll_for_incomplete_task(incomplete_indices: list[int]) -> int:
-    valid_task_numbers = [i + 1 for i in incomplete_indices]
-    roll = roll_die()
-    while roll not in valid_task_numbers:
-        roll = roll_die()
-    return roll - 1
+    return "Ready to roll!"
 
 
 def _calculate_duration_and_break(roll: int) -> tuple[int, bool]:
@@ -136,27 +130,30 @@ class PaperTodoApp(App):
     """
 
     BINDINGS = [
-        Binding("1", "edit_task(1)", "Edit task 1", show=False),
-        Binding("2", "edit_task(2)", "Edit task 2", show=False),
-        Binding("3", "edit_task(3)", "Edit task 3", show=False),
-        Binding("4", "edit_task(4)", "Edit task 4", show=False),
-        Binding("5", "edit_task(5)", "Edit task 5", show=False),
-        Binding("6", "edit_task(6)", "Edit task 6", show=False),
-        Binding("r", "roll_task", "Roll for task", show=True),
-        Binding("t", "roll_time", "Roll for time", show=True),
-        Binding("space", "toggle_timer", "Start/Pause", show=True),
-        Binding("c", "toggle_complete", "Complete", show=True),
-        Binding("q", "quit", "Quit", show=True),
+        Binding("1", "task_action(1)", "Task 1", show=False),
+        Binding("2", "task_action(2)", "Task 2", show=False),
+        Binding("3", "task_action(3)", "Task 3", show=False),
+        Binding("4", "task_action(4)", "Task 4", show=False),
+        Binding("5", "task_action(5)", "Task 5", show=False),
+        Binding("6", "task_action(6)", "Task 6", show=False),
+        Binding("r,R", "roll", "roll", show=True),
+        Binding("c,C", "complete_and_end", "complete & end", show=True),
+        Binding("e,E", "end_timer", "end", show=True),
+        Binding("q,Q", "quit", "quit", show=True),
     ]
 
     def __init__(self) -> None:
         super().__init__()
         self.state = load_state()
-        self.editing_task: int | None = None
         self.task_list: TaskList | None = None
         self.dice_display: DiceDisplay | None = None
         self.timer_display: TimerDisplay | None = None
+        self.help_widget: Static | None = None
         self.timer_worker = None
+
+    @property
+    def is_timer_active(self) -> bool:
+        return self.state.timer.running
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -164,10 +161,8 @@ class PaperTodoApp(App):
             with Vertical():
                 self.task_list = TaskList(self.state)
                 yield self.task_list
-                yield Static(
-                    "[bold]Keys:[/bold] 1-6: Edit | R: Roll task | T: Roll time | Space: Start/Pause | C: Complete | Q: Quit",
-                    id="help",
-                )
+                self.help_widget = Static(self._get_help_text(), id="help")
+                yield self.help_widget
             with Vertical():
                 self.dice_display = DiceDisplay()
                 yield self.dice_display
@@ -175,93 +170,102 @@ class PaperTodoApp(App):
                 yield self.timer_display
         yield Footer()
 
+    def _get_help_text(self) -> str:
+        if self.is_timer_active:
+            return "[bold]Keys:[/bold] c: complete & end | e: end | q: quit"
+        return "[bold]Keys:[/bold] 1-6: edit | r: roll | q: quit"
+
+    def _refresh_help(self) -> None:
+        if self.help_widget:
+            self.help_widget.update(self._get_help_text())
+
     def on_mount(self) -> None:
-        if self.state.timer.running or self.state.timer.remaining_seconds > 0:
+        if self.state.timer.running:
             self.timer_display.refresh_timer()
-            if self.state.timer.running:
-                self.start_timer_worker()
+            self._refresh_help()
+            self.start_timer_worker()
 
     def on_unmount(self) -> None:
         save_state(self.state)
 
-    def action_edit_task(self, task_num: int) -> None:
+    def action_task_action(self, task_num: int) -> None:
         task_index = task_num - 1
-        if 0 <= task_index < MAX_TASKS:
-            self.edit_task(task_index)
+        if not (0 <= task_index < MAX_TASKS):
+            return
+        if self.is_timer_active:
+            self.notify("Timer active - press C to complete & end", severity="warning")
+        else:
+            self._edit_task(task_index)
 
-    def edit_task(self, task_index: int) -> None:
+    def _edit_task(self, task_index: int) -> None:
+        task = self.state.tasks[task_index]
+
         async def get_task_input() -> None:
-            current_text = self.state.tasks[task_index].text
             result = await self.app.push_screen_wait(
-                TaskInputScreen(task_index, current_text)
+                TaskInputScreen(task_index, task.text, task.completed)
             )
-            if result is not None:
-                self.state.tasks[task_index].text = result[:TASK_CHAR_LIMIT]
-                self.task_list.refresh_tasks()
-                save_state(self.state)
+            if result is None:
+                return
+            action, new_text = result
+            if action == "save":
+                self.state.tasks[task_index].text = new_text[:TASK_CHAR_LIMIT]
+            elif action == "complete":
+                self.state.tasks[task_index].text = new_text[:TASK_CHAR_LIMIT]
+                self.state.tasks[task_index].completed = True
+            self.task_list.refresh_tasks()
+            save_state(self.state)
 
         self.run_worker(get_task_input())
 
-    async def _animate_and_roll_task(self) -> int | None:
-        if not (incomplete := self.state.get_incomplete_task_indices()):
-            self.notify("No incomplete tasks to roll for!", severity="warning")
-            return None
-
+    async def _animate_dice(self, options: list[int]) -> int:
         for _ in range(10):
-            self.dice_display.set_value(roll_die())
+            value = roll_from_options(options)
+            self.dice_display.set_value(value)
             await asyncio.sleep(0.1)
-
-        selected_index = _roll_for_incomplete_task(incomplete)
-        self.dice_display.set_value(selected_index + 1)
-        return selected_index
+        final = roll_from_options(options)
+        self.dice_display.set_value(final)
+        return final
 
     @work(exclusive=True)
-    async def action_roll_task(self) -> None:
-        if (selected_index := await self._animate_and_roll_task()) is not None:
-            self.notify(f"Work on task {selected_index + 1}: {self.state.tasks[selected_index].text}")
+    async def action_roll(self) -> None:
+        if self.is_timer_active:
+            self.notify("Timer already running!", severity="warning")
+            return
 
-    @work(exclusive=True)
-    async def action_roll_time(self) -> None:
-        for _ in range(10):
-            self.dice_display.set_value(roll_die())
-            await asyncio.sleep(0.1)
+        incomplete = self.state.get_incomplete_task_indices()
+        if not incomplete:
+            self.notify("No incomplete tasks - add some first!", severity="warning")
+            return
 
-        final_roll = roll_die()
-        self.dice_display.set_value(final_roll)
-        duration_minutes, is_break = _calculate_duration_and_break(final_roll)
+        task_options = [i + 1 for i in incomplete]
+        task_roll = await self._animate_dice(task_options)
+        task_index = task_roll - 1
+        task_text = self.state.tasks[task_index].text
+        self.notify(f"Task {task_roll}: {task_text}")
+
+        await asyncio.sleep(0.5)
+
+        duration_roll = await self._animate_dice([1, 2, 3, 4, 5, 6])
+        duration_minutes, is_break = _calculate_duration_and_break(duration_roll)
 
         if is_break:
-            self.notify(f"Rolled {final_roll}: 10 minute break!")
-            self.state.timer.start(None, duration_minutes, is_break=True)
-        else:
-            self.notify(f"Rolled {final_roll}: {duration_minutes} minutes")
-            if incomplete := self.state.get_incomplete_task_indices():
-                await asyncio.sleep(0.5)
-                if (selected_index := await self._animate_and_roll_task()) is not None:
-                    self.notify(f"Work on task {selected_index + 1}: {self.state.tasks[selected_index].text}")
-                    self.state.timer.start(selected_index, duration_minutes, is_break=False)
-                else:
-                    self.state.timer.start(None, duration_minutes, is_break=True)
-            else:
+            self.notify(f"Rolled {duration_roll}: Lucky! 10 minute break!")
+            confirmed = await self.app.push_screen_wait(
+                StartTimerConfirmScreen(duration_minutes, None, is_break=True)
+            )
+            if confirmed:
                 self.state.timer.start(None, duration_minutes, is_break=True)
-
-        self.timer_display.refresh_timer()
-        self.task_list.refresh_tasks()
-        save_state(self.state)
-
-    def action_toggle_timer(self) -> None:
-        if self.state.timer.running:
-            self.state.timer.pause()
-            self.notify("Timer paused")
-            if self.timer_worker:
-                self.timer_worker.cancel()
-                self.timer_worker = None
-        elif self.state.timer.remaining_seconds > 0:
-            self.state.timer.resume()
-            self.notify("Timer resumed")
-            self.start_timer_worker()
         else:
-            self.notify("Roll for time first (press T)", severity="warning")
+            self.notify(f"Rolled {duration_roll}: {duration_minutes} minutes")
+            confirmed = await self.app.push_screen_wait(
+                StartTimerConfirmScreen(duration_minutes, task_index, is_break=False, task_text=task_text)
+            )
+            if confirmed:
+                self.state.timer.start(task_index, duration_minutes, is_break=False)
+
+        if self.state.timer.running:
+            self.start_timer_worker()
+            self._refresh_help()
 
         self.timer_display.refresh_timer()
         self.task_list.refresh_tasks()
@@ -269,37 +273,127 @@ class PaperTodoApp(App):
 
     def start_timer_worker(self) -> None:
         if self.timer_worker is None:
-            self.timer_worker = self.run_worker(self.timer_tick(), exclusive=True)
+            self.timer_worker = self.run_worker(self._timer_tick(), exclusive=True)
 
-    @work(exclusive=True)
-    async def timer_tick(self) -> None:
+    async def _timer_tick(self) -> None:
         while self.state.timer.running and self.state.timer.remaining_seconds > 0:
             await asyncio.sleep(1)
             self.state.timer.tick()
             self.timer_display.refresh_timer()
+
+            if self.state.timer.should_warn_ten_percent() and not self.state.timer.warned_ten_percent:
+                self.state.timer.warned_ten_percent = True
+                remaining = _format_timer_time(self.state.timer.remaining_seconds)
+                _send_notification("Paper TODO", f"10% remaining: {remaining}", sound="Purr")
+                self.notify(f"10% remaining: {remaining}", severity="warning")
+
             save_state(self.state)
 
         if self.state.timer.is_finished():
-            self.notify("⏰ Time's up!", severity="information")
+            task_info = "Break" if self.state.timer.is_break else f"Task {(self.state.timer.task_index or 0) + 1}"
+            _send_notification("Paper TODO", f"Time's up! {task_info} complete.", sound="Glass")
+            self.notify("Time's up!", severity="information")
             self.state.timer.reset()
+            self.timer_worker = None
+            self._refresh_help()
             self.timer_display.refresh_timer()
             self.task_list.refresh_tasks()
             save_state(self.state)
 
-    def action_toggle_complete(self) -> None:
+    def action_complete_and_end(self) -> None:
+        if not self.is_timer_active:
+            self.notify("No active timer", severity="warning")
+            return
+
         if self.state.timer.task_index is not None:
             task_index = self.state.timer.task_index
-            self.state.tasks[task_index].toggle()
-            task = self.state.tasks[task_index]
-            status = "completed" if task.completed else "incomplete"
-            self.notify(f"Task {task_index + 1} marked as {status}")
-            self.task_list.refresh_tasks()
-            save_state(self.state)
-        else:
-            self.notify("No active task to complete", severity="warning")
+            self.state.tasks[task_index].completed = True
+            self.notify(f"Task {task_index + 1} completed!")
+
+        self._stop_timer()
+
+    def action_end_timer(self) -> None:
+        if not self.is_timer_active:
+            self.notify("No active timer", severity="warning")
+            return
+
+        self.notify("Timer ended")
+        self._stop_timer()
+
+    def _stop_timer(self) -> None:
+        if self.timer_worker:
+            self.timer_worker.cancel()
+            self.timer_worker = None
+
+        self.state.timer.reset()
+        self._refresh_help()
+        self.timer_display.refresh_timer()
+        self.task_list.refresh_tasks()
+        save_state(self.state)
 
 
-class TaskInputScreen(ModalScreen[str | None]):
+class StartTimerConfirmScreen(ModalScreen[bool]):
+    CSS = """
+    StartTimerConfirmScreen {
+        align: center middle;
+    }
+
+    #dialog {
+        width: 60;
+        height: auto;
+        border: solid yellow;
+        background: $surface;
+        padding: 1;
+    }
+
+    #message {
+        width: 100%;
+        margin-bottom: 1;
+        text-align: center;
+    }
+
+    #buttons {
+        width: 100%;
+        height: auto;
+        align: center middle;
+    }
+    """
+
+    def __init__(self, duration_minutes: int, task_index: int | None, is_break: bool, task_text: str | None = None) -> None:
+        super().__init__()
+        self.duration_minutes = duration_minutes
+        self.task_index = task_index
+        self.is_break = is_break
+        self.task_text = task_text
+
+    def compose(self) -> ComposeResult:
+        with Container(id="dialog"):
+            yield Label("[bold yellow]Ready to start timer?[/bold yellow]")
+            if self.is_break:
+                yield Label(f"[cyan]{self.duration_minutes} minute break[/cyan]", id="message")
+            else:
+                task_display = self.task_text or "(empty)"
+                yield Label(
+                    f"[cyan]{self.duration_minutes} minutes[/cyan]\n[green]Task {(self.task_index or 0) + 1}: {task_display}[/green]",
+                    id="message",
+                )
+            with Horizontal(id="buttons"):
+                yield Button("Start Timer", variant="success", id="start")
+                yield Button("Cancel", variant="default", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#start", Button).focus()
+
+    @on(Button.Pressed, "#start")
+    def start_timer(self) -> None:
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#cancel")
+    def cancel_timer(self) -> None:
+        self.dismiss(False)
+
+
+class TaskInputScreen(ModalScreen[tuple[str, str] | None]):
     CSS = """
     TaskInputScreen {
         align: center middle;
@@ -307,7 +401,7 @@ class TaskInputScreen(ModalScreen[str | None]):
 
     #dialog {
         width: 60;
-        height: 11;
+        height: auto;
         border: solid green;
         background: $surface;
         padding: 1;
@@ -325,10 +419,11 @@ class TaskInputScreen(ModalScreen[str | None]):
     }
     """
 
-    def __init__(self, task_index: int, current_text: str) -> None:
+    def __init__(self, task_index: int, current_text: str, is_completed: bool) -> None:
         super().__init__()
         self.task_index = task_index
         self.current_text = current_text
+        self.is_completed = is_completed
 
     def compose(self) -> ComposeResult:
         with Container(id="dialog"):
@@ -341,6 +436,8 @@ class TaskInputScreen(ModalScreen[str | None]):
             )
             with Horizontal(id="buttons"):
                 yield Button("Save", variant="success", id="save")
+                if not self.is_completed:
+                    yield Button("Mark Complete", variant="warning", id="complete")
                 yield Button("Cancel", variant="default", id="cancel")
 
     def on_mount(self) -> None:
@@ -349,14 +446,19 @@ class TaskInputScreen(ModalScreen[str | None]):
     @on(Button.Pressed, "#save")
     def save_task(self) -> None:
         input_widget = self.query_one(Input)
-        self.dismiss(input_widget.value)
+        self.dismiss(("save", input_widget.value))
+
+    @on(Button.Pressed, "#complete")
+    def complete_task(self) -> None:
+        input_widget = self.query_one(Input)
+        self.dismiss(("complete", input_widget.value))
 
     @on(Button.Pressed, "#cancel")
     def cancel_edit(self) -> None:
         self.dismiss(None)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        self.dismiss(event.value)
+        self.dismiss(("save", event.value))
 
 
 def main() -> None:

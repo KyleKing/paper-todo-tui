@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from pydantic import BaseModel, Field
 
 MAX_TASKS = 6
@@ -24,30 +22,28 @@ class TimerState(BaseModel):
     remaining_seconds: int = 0
     is_break: bool = False
     running: bool = False
-    start_time: datetime | None = None
+    warned_ten_percent: bool = False
 
-    def start(self, task_index: int | None, duration_minutes: int, is_break: bool = False) -> None:
+    def start(self, task_index: int | None, duration_minutes: int, *, is_break: bool = False) -> None:
         self.task_index = task_index
         self.duration_seconds = duration_minutes * 60
         self.remaining_seconds = self.duration_seconds
         self.is_break = is_break
         self.running = True
-        self.start_time = datetime.now()
-
-    def pause(self) -> None:
-        self.running = False
-
-    def resume(self) -> None:
-        if self.remaining_seconds > 0:
-            self.running = True
-            self.start_time = datetime.now()
+        self.warned_ten_percent = False
 
     def tick(self) -> None:
         if self.running and self.remaining_seconds > 0:
             self.remaining_seconds -= 1
 
     def is_finished(self) -> bool:
-        return self.remaining_seconds <= 0
+        return self.running and self.remaining_seconds <= 0
+
+    def should_warn_ten_percent(self) -> bool:
+        if self.warned_ten_percent or self.duration_seconds == 0:
+            return False
+        threshold = self.duration_seconds // 10
+        return self.remaining_seconds <= threshold
 
     def reset(self) -> None:
         self.task_index = None
@@ -55,7 +51,7 @@ class TimerState(BaseModel):
         self.remaining_seconds = 0
         self.is_break = False
         self.running = False
-        self.start_time = None
+        self.warned_ten_percent = False
 
 
 class AppState(BaseModel):

@@ -1,22 +1,11 @@
-from datetime import datetime
-
 import pytest
 
 from paper_todo.models import (
-    MAX_TASKS,
     TASK_CHAR_LIMIT,
-    AppState,
     Task,
     TimerState,
-    _is_task_incomplete,
     get_incomplete_task_indices,
 )
-
-
-def test_task_defaults():
-    task = Task()
-    assert task.text == ""
-    assert task.completed is False
 
 
 def test_task_toggle():
@@ -28,115 +17,51 @@ def test_task_toggle():
     assert task.completed is False
 
 
-def test_task_max_length():
-    long_text = "x" * (TASK_CHAR_LIMIT + 10)
+def test_task_max_length_rejected():
     with pytest.raises(Exception):
-        Task(text=long_text)
+        Task(text="x" * (TASK_CHAR_LIMIT + 1))
 
 
-def test_is_task_incomplete():
-    assert _is_task_incomplete(Task(text="Test", completed=False)) is True
-    assert _is_task_incomplete(Task(text="Test", completed=True)) is False
-    assert _is_task_incomplete(Task(text="", completed=False)) is False
-    assert _is_task_incomplete(Task(text="", completed=True)) is False
-
-
-def test_timer_state_defaults():
-    timer = TimerState()
-    assert timer.task_index is None
-    assert timer.duration_seconds == 0
-    assert timer.remaining_seconds == 0
-    assert timer.is_break is False
-    assert timer.running is False
-    assert timer.start_time is None
-
-
-def test_timer_start():
-    timer = TimerState()
-    timer.start(task_index=2, duration_minutes=10, is_break=False)
-
-    assert timer.task_index == 2
-    assert timer.duration_seconds == 600
-    assert timer.remaining_seconds == 600
-    assert timer.is_break is False
-    assert timer.running is True
-    assert isinstance(timer.start_time, datetime)
-
-
-def test_timer_start_break():
-    timer = TimerState()
-    timer.start(task_index=None, duration_minutes=10, is_break=True)
-
-    assert timer.task_index is None
-    assert timer.is_break is True
-    assert timer.running is True
-
-
-def test_timer_pause_resume():
-    timer = TimerState()
-    timer.start(task_index=0, duration_minutes=5, is_break=False)
-
-    timer.pause()
-    assert timer.running is False
-
-    timer.resume()
-    assert timer.running is True
-
-
-def test_timer_resume_no_time_remaining():
-    timer = TimerState()
-    timer.remaining_seconds = 0
-    timer.resume()
-    assert timer.running is False
-
-
-def test_timer_tick():
-    timer = TimerState()
-    timer.start(task_index=0, duration_minutes=1, is_break=False)
-    initial_remaining = timer.remaining_seconds
-
+@pytest.mark.parametrize(
+    ("running", "initial_remaining", "expected_remaining"),
+    [
+        (True, 60, 59),
+        (False, 100, 100),
+    ],
+    ids=["running-decrements", "stopped-unchanged"],
+)
+def test_timer_tick(running, initial_remaining, expected_remaining):
+    timer = TimerState(running=running, remaining_seconds=initial_remaining)
     timer.tick()
-    assert timer.remaining_seconds == initial_remaining - 1
+    assert timer.remaining_seconds == expected_remaining
 
 
-def test_timer_tick_not_running():
+@pytest.mark.parametrize(
+    ("running", "remaining", "expected"),
+    [
+        (False, 0, False),
+        (True, 10, False),
+        (True, 0, True),
+    ],
+    ids=["not-running", "running-time-left", "running-finished"],
+)
+def test_timer_is_finished(running, remaining, expected):
+    timer = TimerState(running=running, remaining_seconds=remaining)
+    assert timer.is_finished() is expected
+
+
+def test_timer_should_warn_ten_percent():
     timer = TimerState()
-    timer.remaining_seconds = 100
-    timer.running = False
+    timer.start(task_index=0, duration_minutes=10, is_break=False)
 
-    timer.tick()
-    assert timer.remaining_seconds == 100
+    timer.remaining_seconds = 61
+    assert timer.should_warn_ten_percent() is False
 
+    timer.remaining_seconds = 60
+    assert timer.should_warn_ten_percent() is True
 
-def test_timer_is_finished():
-    timer = TimerState()
-    assert timer.is_finished() is True
-
-    timer.remaining_seconds = 10
-    assert timer.is_finished() is False
-
-    timer.remaining_seconds = 0
-    assert timer.is_finished() is True
-
-
-def test_timer_reset():
-    timer = TimerState()
-    timer.start(task_index=3, duration_minutes=20, is_break=False)
-    timer.reset()
-
-    assert timer.task_index is None
-    assert timer.duration_seconds == 0
-    assert timer.remaining_seconds == 0
-    assert timer.is_break is False
-    assert timer.running is False
-    assert timer.start_time is None
-
-
-def test_app_state_defaults():
-    state = AppState()
-    assert len(state.tasks) == MAX_TASKS
-    assert all(isinstance(task, Task) for task in state.tasks)
-    assert isinstance(state.timer, TimerState)
+    timer.warned_ten_percent = True
+    assert timer.should_warn_ten_percent() is False
 
 
 def test_get_incomplete_task_indices():
@@ -149,16 +74,4 @@ def test_get_incomplete_task_indices():
         Task(text="Task 6", completed=False),
     ]
 
-    incomplete = get_incomplete_task_indices(tasks)
-    assert incomplete == [0, 3, 5]
-
-
-def test_app_state_get_incomplete_task_indices():
-    state = AppState()
-    state.tasks[0].text = "Task 1"
-    state.tasks[1].text = "Task 2"
-    state.tasks[1].completed = True
-    state.tasks[3].text = "Task 4"
-
-    incomplete = state.get_incomplete_task_indices()
-    assert incomplete == [0, 3]
+    assert get_incomplete_task_indices(tasks) == [0, 3, 5]

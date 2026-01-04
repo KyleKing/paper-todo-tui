@@ -3,11 +3,11 @@ from pathlib import Path
 
 import pytest
 
-from paper_todo.models import AppState, Task, TimerState
+from paper_todo.models import AppState
 from paper_todo.storage import _get_default_state_file, _parse_state_file, load_state, save_state
 
 
-def test_get_default_state_file(tmp_path, monkeypatch):
+def test_get_default_state_file_with_xdg(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     state_file = _get_default_state_file()
 
@@ -26,34 +26,33 @@ def test_get_default_state_file_no_xdg(tmp_path, monkeypatch):
 def test_parse_state_file_valid():
     state = AppState()
     state.tasks[0].text = "Test task"
-    json_content = state.model_dump_json()
 
-    parsed = _parse_state_file(json_content)
+    parsed = _parse_state_file(state.model_dump_json())
     assert parsed.tasks[0].text == "Test task"
 
 
-def test_parse_state_file_invalid_json():
-    result = _parse_state_file("invalid json {")
+@pytest.mark.parametrize(
+    "invalid_content",
+    [
+        "invalid json {",
+        '{"invalid": "data"}',
+    ],
+    ids=["malformed-json", "wrong-schema"],
+)
+def test_parse_state_file_invalid(invalid_content):
+    result = _parse_state_file(invalid_content)
     assert isinstance(result, AppState)
     assert len(result.tasks) == 6
 
 
-def test_parse_state_file_invalid_data():
-    result = _parse_state_file('{"invalid": "data"}')
-    assert isinstance(result, AppState)
-
-
 def test_load_state_nonexistent(tmp_path):
-    state_file = tmp_path / "nonexistent.json"
-    state = load_state(state_file)
-
+    state = load_state(tmp_path / "nonexistent.json")
     assert isinstance(state, AppState)
     assert len(state.tasks) == 6
 
 
 def test_load_state_existing(tmp_path):
     state_file = tmp_path / "state.json"
-
     original = AppState()
     original.tasks[0].text = "Test task"
     original.tasks[0].completed = True
@@ -66,7 +65,6 @@ def test_load_state_existing(tmp_path):
 
 def test_save_state(tmp_path):
     state_file = tmp_path / "state.json"
-
     state = AppState()
     state.tasks[0].text = "Save test"
     state.timer.task_index = 2
@@ -81,7 +79,6 @@ def test_save_state(tmp_path):
 
 def test_load_save_roundtrip(tmp_path):
     state_file = tmp_path / "state.json"
-
     original = AppState()
     original.tasks[0].text = "Roundtrip test"
     original.tasks[1].completed = True
