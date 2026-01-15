@@ -28,25 +28,20 @@ class TaskRow(Horizontal):
         yield Label(self._format_text(), classes="task-text")
 
     def _format_text(self) -> str:
-        text = self._task_data.text or "(empty)"
-        if self._task_data.completed:
-            return f"[s]{text}[/s]"
-        return text
+        return self._task_data.text or "(empty)"
 
     def refresh_display(self, *, is_active: bool = False) -> None:
         label = self.query_one(".task-text", Label)
-
         text = self._task_data.text or "(empty)"
+
+        label.update(text)
         if self._task_data.completed:
-            label.update(f"[s]{text}[/s]")
             label.add_class("completed")
             label.remove_class("active")
         elif is_active:
-            label.update(text)
             label.remove_class("completed")
             label.add_class("active")
         else:
-            label.update(text)
             label.remove_class("completed", "active")
 
         if self.indicator:

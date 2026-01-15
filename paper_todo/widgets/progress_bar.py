@@ -14,6 +14,7 @@ from paper_todo.animation import (
 )
 from paper_todo.models import AppState
 from paper_todo.theme import ThemeMode, get_palette
+from paper_todo.widgets.duration_indicator import DurationIndicator, DurationState
 
 
 class ProgressBarState(StrEnum):
@@ -42,32 +43,33 @@ class ProgressBarTimer(Static):
         self._celebration_task: asyncio.Task | None = None
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="progress-container"):
+        with Horizontal(id="duration-row"):
             for i, label in enumerate(DURATION_LABELS):
-                yield Label(
-                    f" {label} ",
-                    id=f"duration-{i}",
-                    classes="duration-indicator",
-                )
+                yield DurationIndicator(label, state=DurationState.DIM)
         yield Static("", id="progress-bar")
-        yield Static("", id="progress-fill")
         yield Label("", id="timer-status")
 
     def on_mount(self) -> None:
         self._refresh_display()
 
     def _refresh_display(self) -> None:
-        for i in range(6):
-            indicator = self.query_one(f"#duration-{i}", Label)
-            indicator.remove_class("active", "faded")
-
-            if self._bar_state == ProgressBarState.IDLE:
-                pass
-            elif self._active_index == i:
-                indicator.add_class("active")
-            elif self._bar_state in (ProgressBarState.TRANSITIONING, ProgressBarState.RUNNING):
-                if self._selected_index is not None and i != self._selected_index:
-                    indicator.add_class("faded")
+        indicators = list(self.query(DurationIndicator))
+        for i, indicator in enumerate(indicators):
+            match self._bar_state:
+                case ProgressBarState.IDLE:
+                    indicator.set_state(DurationState.DIM)
+                case ProgressBarState.SELECTING:
+                    if self._active_index == i:
+                        indicator.set_state(DurationState.BRIGHT)
+                    else:
+                        indicator.set_state(DurationState.DIM)
+                case ProgressBarState.TRANSITIONING | ProgressBarState.RUNNING:
+                    if self._selected_index == i:
+                        indicator.set_state(DurationState.BRIGHT)
+                    else:
+                        indicator.set_state(DurationState.FADED)
+                case ProgressBarState.CELEBRATION:
+                    indicator.set_state(DurationState.FADED)
 
         self._update_status_text()
         self._update_fill()
@@ -91,7 +93,6 @@ class ProgressBarTimer(Static):
                 status.update("Complete!")
 
     def _update_fill(self) -> None:
-        fill = self.query_one("#progress-fill", Static)
         bar = self.query_one("#progress-bar", Static)
 
         try:
@@ -103,26 +104,34 @@ class ProgressBarTimer(Static):
             bar_width = 60
 
         filled_width = int(bar_width * self._fill_percent)
+        empty_width = bar_width - filled_width
+
+        palette = get_palette(self.theme_mode)
 
         if self._bar_state == ProgressBarState.CELEBRATION or self._is_break:
             fill_chars = []
             for i in range(filled_width):
                 color = get_rainbow_color(i + self._rainbow_offset)
                 fill_chars.append(f"[{color}]█[/]")
-            fill.update("".join(fill_chars))
+            fill_str = "".join(fill_chars)
+            empty_str = f"[{palette.surface}]{'░' * empty_width}[/]" if empty_width > 0 else ""
+            line = fill_str + empty_str
+            bar.update(f"{line}\n{line}\n{line}")
         else:
-            palette = get_palette(self.theme_mode)
             if filled_width > 0:
-                fill.update(f"[{palette.blue}]{'█' * filled_width}[/]")
+                fill_str = f"[{palette.blue}]{'█' * filled_width}[/]"
             else:
-                fill.update("")
+                fill_str = ""
+            empty_str = f"[{palette.surface}]{'░' * empty_width}[/]" if empty_width > 0 else ""
+            line = fill_str + empty_str
+            bar.update(f"{line}\n{line}\n{line}")
 
     async def animate_duration_selection(self) -> int:
         self._bar_state = ProgressBarState.SELECTING
         self._refresh_display()
 
         positions = list(range(6))
-        frames = generate_knight_rider_frames(positions, num_cycles=2)
+        frames = generate_knight_rider_frames(positions, num_cycles=3)
 
         def on_frame(idx: int) -> None:
             self._active_index = idx
@@ -139,11 +148,6 @@ class ProgressBarTimer(Static):
         self._is_break = is_break
         self._refresh_display()
 
-        for i in range(6):
-            if i != selected_index:
-                indicator = self.query_one(f"#duration-{i}", Label)
-                indicator.add_class("faded")
-
         await asyncio.sleep(0.3)
 
         slide_frames = generate_slide_frames(
@@ -151,7 +155,6 @@ class ProgressBarTimer(Static):
             end_position=1.0,
         )
 
-        selected_indicator = self.query_one(f"#duration-{selected_index}", Label)
         for _ in slide_frames:
             await asyncio.sleep(0.016)
 
@@ -212,3 +215,23 @@ class ProgressBarTimer(Static):
     def set_theme_mode(self, mode: ThemeMode) -> None:
         self.theme_mode = mode
         self._update_fill()
+
+    def restore_timer_state(self) -> None:
+        if not self.app_state.timer.running:
+            return
+
+        duration_minutes = self.app_state.timer.duration_seconds // 60
+        if self.app_state.timer.is_break:
+            self._selected_index = 5
+        else:
+            index_map = {10: 0, 20: 1, 30: 2, 40: 3, 50: 4}
+            self._selected_index = index_map.get(duration_minutes, 0)
+
+        self._bar_state = ProgressBarState.RUNNING
+        self._is_break = self.app_state.timer.is_break
+        elapsed = self.app_state.timer.duration_seconds - self.app_state.timer.remaining_seconds
+        self._fill_percent = elapsed / self.app_state.timer.duration_seconds if self.app_state.timer.duration_seconds > 0 else 0.0
+        self._refresh_display()
+
+        if self._is_break:
+            self._start_rainbow_animation()

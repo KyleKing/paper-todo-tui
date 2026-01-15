@@ -1,7 +1,6 @@
 from enum import StrEnum
 from textwrap import dedent
 
-from textual.app import ComposeResult
 from textual.widgets import Static
 
 
@@ -21,12 +20,9 @@ def _render_indicator_box(number: int) -> str:
 
 class TaskIndicator(Static):
     def __init__(self, number: int, *, state: IndicatorState = IndicatorState.DIM) -> None:
-        super().__init__()
+        super().__init__(_render_indicator_box(number))
         self.number = number
         self._state = state
-
-    def compose(self) -> ComposeResult:
-        yield Static(_render_indicator_box(self.number), id="indicator-box")
 
     def on_mount(self) -> None:
         self._apply_state()

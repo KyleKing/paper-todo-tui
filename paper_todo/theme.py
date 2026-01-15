@@ -1,5 +1,4 @@
 import os
-import subprocess
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -37,16 +36,16 @@ MACCHIATO = CatppuccinPalette(
 )
 
 LATTE = CatppuccinPalette(
-    base="#eff1f5",
-    surface="#e6e9ef",
-    overlay="#ccd0da",
-    text="#4c4f69",
-    subtext="#6c6f85",
-    green="#40a02b",
-    blue="#1e66f5",
-    yellow="#df8e1d",
-    red="#d20f39",
-    mauve="#8839ef",
+    base="#faf4ed",
+    surface="#f2e9e1",
+    overlay="#dcd0c5",
+    text="#575279",
+    subtext="#797593",
+    green="#56949f",
+    blue="#286983",
+    yellow="#ea9d34",
+    red="#b4637a",
+    mauve="#907aa9",
 )
 
 PALETTES = {
@@ -55,27 +54,31 @@ PALETTES = {
 }
 
 
-def _detect_macos_theme() -> ThemeMode | None:
-    try:
-        result = subprocess.run(
-            ["defaults", "read", "-g", "AppleInterfaceStyle"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode == 0 and "dark" in result.stdout.lower():
-            return ThemeMode.DARK
-        return ThemeMode.LIGHT
-    except (FileNotFoundError, OSError):
-        return None
+def _detect_terminal_theme() -> ThemeMode | None:
+    if (colorfgbg := os.environ.get("COLORFGBG")):
+        parts = colorfgbg.split(";")
+        if len(parts) >= 2:
+            try:
+                bg = int(parts[-1])
+                if bg in (0, 8):
+                    return ThemeMode.DARK
+                if bg in (7, 15):
+                    return ThemeMode.LIGHT
+            except ValueError:
+                pass
+
+    if os.environ.get("TERM_PROGRAM") in ("iTerm.app", "Apple_Terminal", "Hyper", "WezTerm"):
+        return ThemeMode.DARK
+
+    return None
 
 
 def detect_system_theme() -> ThemeMode:
     if (env_scheme := os.environ.get("COLORSCHEME")):
         return ThemeMode.LIGHT if "light" in env_scheme.lower() else ThemeMode.DARK
 
-    if (macos_theme := _detect_macos_theme()):
-        return macos_theme
+    if (terminal_theme := _detect_terminal_theme()):
+        return terminal_theme
 
     return ThemeMode.DARK
 

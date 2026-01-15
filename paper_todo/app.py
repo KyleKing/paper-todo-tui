@@ -45,12 +45,12 @@ class PaperTodoApp(App):
     CSS_PATH = Path(__file__).parent / "paper_todo.tcss"
 
     BINDINGS = [
-        Binding("1", "task_action(1)", "Task 1", show=False),
-        Binding("2", "task_action(2)", "Task 2", show=False),
-        Binding("3", "task_action(3)", "Task 3", show=False),
-        Binding("4", "task_action(4)", "Task 4", show=False),
-        Binding("5", "task_action(5)", "Task 5", show=False),
-        Binding("6", "task_action(6)", "Task 6", show=False),
+        Binding("1", "task_action(1)", "[1-6] edit", show=True),
+        Binding("2", "task_action(2)", show=False),
+        Binding("3", "task_action(3)", show=False),
+        Binding("4", "task_action(4)", show=False),
+        Binding("5", "task_action(5)", show=False),
+        Binding("6", "task_action(6)", show=False),
         Binding("s,S", "start", "start", show=True),
         Binding("t,T", "toggle_theme", "theme", show=True),
         Binding("c,C", "complete_and_end", "complete & end", show=True),
@@ -64,38 +64,32 @@ class PaperTodoApp(App):
         self.theme_mode = detect_system_theme()
         self.task_rows: list[TaskRow] = []
         self.progress_bar: ProgressBarTimer | None = None
-        self.help_widget: Static | None = None
         self.timer_worker = None
 
     @property
     def is_timer_active(self) -> bool:
         return self.state.timer.running
 
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "start":
+            return None if self.is_timer_active else True
+        if action == "task_action":
+            return None if self.is_timer_active else True
+        if action in ("complete_and_end", "end_timer"):
+            return True if self.is_timer_active else None
+        return True
+
     def compose(self) -> ComposeResult:
         yield Header()
-        with Vertical(id="task-list"):
-            for i in range(MAX_TASKS):
-                row = TaskRow(i, self.state.tasks[i])
-                self.task_rows.append(row)
-                yield row
-        self.help_widget = Static(self._get_help_text(), id="help")
-        yield self.help_widget
-        self.progress_bar = ProgressBarTimer(self.state, self.theme_mode)
-        yield self.progress_bar
+        with Container(id="main-content"):
+            self.progress_bar = ProgressBarTimer(self.state, self.theme_mode)
+            yield self.progress_bar
+            with Vertical(id="task-list"):
+                for i in range(MAX_TASKS):
+                    row = TaskRow(i, self.state.tasks[i])
+                    self.task_rows.append(row)
+                    yield row
         yield Footer()
-
-    def _get_help_text(self) -> str:
-        if self.is_timer_active:
-            return "[bold]Keys:[/bold] c: complete & end | e: end | t: theme | q: quit"
-        return "[bold]Keys:[/bold] 1-6: edit | s: start | t: theme | q: quit"
-
-    def _refresh_help(self) -> None:
-        if self.help_widget:
-            self.help_widget.update(self._get_help_text())
-            if self.is_timer_active:
-                self.help_widget.add_class("dimmed")
-            else:
-                self.help_widget.remove_class("dimmed")
 
     def _refresh_task_rows(self) -> None:
         for i, row in enumerate(self.task_rows):
@@ -107,12 +101,9 @@ class PaperTodoApp(App):
         self._apply_theme()
         if self.state.timer.running:
             self._refresh_task_rows()
-            self._refresh_help()
+            self.refresh_bindings()
             if self.progress_bar:
-                elapsed = self.state.timer.duration_seconds - self.state.timer.remaining_seconds
-                self.progress_bar._bar_state = self.progress_bar._bar_state.RUNNING
-                self.progress_bar._is_break = self.state.timer.is_break
-                self.progress_bar.update_fill(elapsed, self.state.timer.duration_seconds)
+                self.progress_bar.restore_timer_state()
             self.start_timer_worker()
 
     def on_unmount(self) -> None:
@@ -129,15 +120,10 @@ class PaperTodoApp(App):
     def action_toggle_theme(self) -> None:
         self.theme_mode = ThemeMode.LIGHT if self.theme_mode == ThemeMode.DARK else ThemeMode.DARK
         self._apply_theme()
-        self.notify(f"Theme: {self.theme_mode.value}")
 
     def action_task_action(self, task_num: int) -> None:
         task_index = task_num - 1
-        if not (0 <= task_index < MAX_TASKS):
-            return
-        if self.is_timer_active:
-            self.notify("Timer active - press C to complete & end", severity="warning")
-        else:
+        if 0 <= task_index < MAX_TASKS:
             self._edit_task(task_index)
 
     def _edit_task(self, task_index: int) -> None:
@@ -164,7 +150,7 @@ class PaperTodoApp(App):
         self.run_worker(get_task_input())
 
     async def _animate_task_selection(self, incomplete_indices: list[int]) -> int:
-        frames = generate_knight_rider_frames(incomplete_indices, num_cycles=2)
+        frames = generate_knight_rider_frames(incomplete_indices, num_cycles=3)
 
         completed_indices = {i for i in range(MAX_TASKS) if self.state.tasks[i].completed}
 
@@ -197,47 +183,49 @@ class PaperTodoApp(App):
             self.notify("Timer already running!", severity="warning")
             return
 
-        incomplete = self.state.get_incomplete_task_indices()
-        if not incomplete:
-            self.notify("No incomplete tasks - add some first!", severity="warning")
+        if not self.progress_bar:
             return
 
-        task_index = await self._animate_task_selection(incomplete)
-        task_text = self.state.tasks[task_index].text
-        self.notify(f"Task {task_index + 1}: {task_text}")
+        duration_index = await self.progress_bar.animate_duration_selection()
+        duration_minutes, is_break = _calculate_duration_and_break(duration_index)
 
-        await asyncio.sleep(0.5)
-
-        if self.progress_bar:
-            duration_index = await self.progress_bar.animate_duration_selection()
-            duration_minutes, is_break = _calculate_duration_and_break(duration_index)
-
-            if is_break:
-                self.notify(f"Break time! 10 minutes")
-                confirmed = await self.app.push_screen_wait(
-                    StartTimerConfirmScreen(duration_minutes, None, is_break=True)
-                )
-                if confirmed:
-                    self.state.timer.start(None, duration_minutes, is_break=True)
-                    await self.progress_bar.transition_to_running(duration_index, is_break=True)
-            else:
-                self.notify(f"{duration_minutes} minutes")
-                confirmed = await self.app.push_screen_wait(
-                    StartTimerConfirmScreen(duration_minutes, task_index, is_break=False, task_text=task_text)
-                )
-                if confirmed:
-                    self.state.timer.start(task_index, duration_minutes, is_break=False)
-                    await self.progress_bar.transition_to_running(duration_index, is_break=False)
-
-            if self.state.timer.running:
-                self.start_timer_worker()
-                self._refresh_help()
-                self._refresh_task_rows()
-            else:
+        if is_break:
+            confirmed = await self.app.push_screen_wait(
+                StartTimerConfirmScreen(duration_minutes, None, is_break=True)
+            )
+            if confirmed:
+                self.state.timer.start(None, duration_minutes, is_break=True)
+                await self.progress_bar.transition_to_running(duration_index, is_break=True)
+        else:
+            incomplete = self.state.get_incomplete_task_indices()
+            if not incomplete:
+                self.notify("No incomplete tasks - add some first!", severity="warning")
                 self.progress_bar.reset()
-                self._refresh_task_rows()
+                return
 
-            save_state(self.state)
+            await asyncio.sleep(0.5)
+
+            task_index = await self._animate_task_selection(incomplete)
+            task_text = self.state.tasks[task_index].text
+
+            await asyncio.sleep(0.5)
+
+            confirmed = await self.app.push_screen_wait(
+                StartTimerConfirmScreen(duration_minutes, task_index, is_break=False, task_text=task_text)
+            )
+            if confirmed:
+                self.state.timer.start(task_index, duration_minutes, is_break=False)
+                await self.progress_bar.transition_to_running(duration_index, is_break=False)
+
+        if self.state.timer.running:
+            self.start_timer_worker()
+            self.refresh_bindings()
+            self._refresh_task_rows()
+        else:
+            self.progress_bar.reset()
+            self._refresh_task_rows()
+
+        save_state(self.state)
 
     def start_timer_worker(self) -> None:
         if self.timer_worker is None:
@@ -263,10 +251,9 @@ class PaperTodoApp(App):
         if self.state.timer.is_finished():
             task_info = "Break" if self.state.timer.is_break else f"Task {(self.state.timer.task_index or 0) + 1}"
             _send_notification("Paper TODO", f"Time's up! {task_info} complete.", sound="Glass")
-            self.notify("Time's up!", severity="information")
             self.state.timer.reset()
             self.timer_worker = None
-            self._refresh_help()
+            self.refresh_bindings()
             self._refresh_task_rows()
             if self.progress_bar:
                 self.progress_bar.reset()
@@ -280,7 +267,6 @@ class PaperTodoApp(App):
         if self.state.timer.task_index is not None:
             task_index = self.state.timer.task_index
             self.state.tasks[task_index].completed = True
-            self.notify(f"Task {task_index + 1} completed!")
 
             if self.progress_bar:
                 self.run_worker(self._celebrate_and_stop())
@@ -293,7 +279,7 @@ class PaperTodoApp(App):
             self.timer_worker = None
 
         self.state.timer.reset()
-        self._refresh_help()
+        self.refresh_bindings()
         self._refresh_task_rows()
         save_state(self.state)
 
@@ -305,7 +291,6 @@ class PaperTodoApp(App):
             self.notify("No active timer", severity="warning")
             return
 
-        self.notify("Timer ended")
         self._stop_timer()
 
     def _stop_timer(self) -> None:
@@ -314,7 +299,7 @@ class PaperTodoApp(App):
             self.timer_worker = None
 
         self.state.timer.reset()
-        self._refresh_help()
+        self.refresh_bindings()
         self._refresh_task_rows()
         if self.progress_bar:
             self.progress_bar.reset()
@@ -322,6 +307,11 @@ class PaperTodoApp(App):
 
 
 class StartTimerConfirmScreen(ModalScreen[bool]):
+    BINDINGS = [
+        Binding("enter", "confirm", "start"),
+        Binding("escape", "cancel", "cancel"),
+    ]
+
     def __init__(self, duration_minutes: int, task_index: int | None, is_break: bool, task_text: str | None = None) -> None:
         super().__init__()
         self.duration_minutes = duration_minutes
@@ -331,28 +321,18 @@ class StartTimerConfirmScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Container(id="dialog"):
-            yield Label("[bold yellow]Ready to start timer?[/bold yellow]")
             if self.is_break:
-                yield Label(f"[cyan]{self.duration_minutes} minute break[/cyan]", id="message")
+                yield Label("Break", id="task-info")
             else:
                 task_display = self.task_text or "(empty)"
-                yield Label(
-                    f"[cyan]{self.duration_minutes} minutes[/cyan]\n[green]Task {(self.task_index or 0) + 1}: {task_display}[/green]",
-                    id="message",
-                )
-            with Horizontal(id="buttons"):
-                yield Button("Start Timer", variant="success", id="start")
-                yield Button("Cancel", variant="default", id="cancel")
+                yield Label(task_display, id="task-info")
+            yield Label(f"{self.duration_minutes} minutes", id="timer-info")
+            yield Label("[dim]Enter[/dim] start   [dim]Esc[/dim] cancel", id="confirm-hints")
 
-    def on_mount(self) -> None:
-        self.query_one("#start", Button).focus()
-
-    @on(Button.Pressed, "#start")
-    def start_timer(self) -> None:
+    def action_confirm(self) -> None:
         self.dismiss(True)
 
-    @on(Button.Pressed, "#cancel")
-    def cancel_timer(self) -> None:
+    def action_cancel(self) -> None:
         self.dismiss(False)
 
 

@@ -110,28 +110,28 @@ async def test_start_no_incomplete_tasks():
 
 
 @pytest.mark.parametrize(
-    ("duration_index", "expected_minutes", "is_break"),
+    ("random_choices", "expected_minutes", "is_break"),
     [
-        (2, 30, False),
-        (5, 10, True),
+        ([2, 0], 30, False),
+        ([5], 10, True),
     ],
     ids=["task-timer", "break-timer"],
 )
-async def test_start_with_confirmation(duration_index, expected_minutes, is_break):
+async def test_start_with_confirmation(random_choices, expected_minutes, is_break):
     state = _fresh_state()
     state.tasks[0].text = "Test task"
     state.tasks[0].completed = False
     with (
         patch("paper_todo.app.load_state", return_value=state),
-        patch("random.choice", side_effect=[0, duration_index]),
+        patch("random.choice", side_effect=random_choices),
     ):
         app = PaperTodoApp()
         async with app.run_test() as pilot:
             await pilot.pause()
             await pilot.press("s")
-            await pilot.pause(delay=5.0)
+            await pilot.pause(delay=10.0)
             assert len(pilot.app.screen_stack) == 2
-            await pilot.click("#start")
+            await pilot.press("enter")
             await pilot.pause(delay=1.0)
             assert app.state.timer.running
             assert app.state.timer.is_break is is_break
@@ -144,14 +144,14 @@ async def test_start_with_confirmation_cancel():
     state.tasks[0].completed = False
     with (
         patch("paper_todo.app.load_state", return_value=state),
-        patch("random.choice", side_effect=[0, 2]),
+        patch("random.choice", side_effect=[2, 0]),
     ):
         app = PaperTodoApp()
         async with app.run_test() as pilot:
             await pilot.pause()
             await pilot.press("s")
-            await pilot.pause(delay=5.0)
-            await pilot.click("#cancel")
+            await pilot.pause(delay=10.0)
+            await pilot.press("escape")
             await pilot.pause()
             assert not app.state.timer.running
             assert app.state.timer.remaining_seconds == 0

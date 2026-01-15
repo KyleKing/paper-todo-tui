@@ -3,10 +3,18 @@
 
 Screen {
     background: #24273a;
+    align: center middle;
 }
 
 Screen.-light-mode {
-    background: #eff1f5;
+    background: #faf4ed;
+}
+
+/* Main content container - constrained size */
+#main-content {
+    max-width: 80;
+    width: 100%;
+    height: auto;
 }
 
 /* Task List Container */
@@ -18,7 +26,7 @@ Screen.-light-mode {
 }
 
 .-light-mode #task-list {
-    border: solid #ccd0da;
+    border: solid #dcd0c5;
 }
 
 /* Task Row - 3 lines tall */
@@ -56,23 +64,23 @@ TaskIndicator.inactive {
 }
 
 .-light-mode TaskIndicator.dim {
-    background: #e6e9ef;
-    color: #6c6f85;
+    background: #f2e9e1;
+    color: #797593;
 }
 
 .-light-mode TaskIndicator.bright {
-    background: #1e66f5;
-    color: #eff1f5;
+    background: #286983;
+    color: #faf4ed;
 }
 
 .-light-mode TaskIndicator.completed-dim {
-    background: #c6e9c1;
-    color: #40a02b;
+    background: #d7e5e5;
+    color: #56949f;
 }
 
 .-light-mode TaskIndicator.inactive {
-    background: #e6e9ef;
-    color: #ccd0da;
+    background: #f2e9e1;
+    color: #dcd0c5;
 }
 
 /* Task Text */
@@ -81,10 +89,11 @@ TaskIndicator.inactive {
     height: 3;
     content-align: left middle;
     color: #cad3f5;
+    width: 1fr;
 }
 
 .-light-mode .task-text {
-    color: #4c4f69;
+    color: #575279;
 }
 
 .task-text.completed {
@@ -93,7 +102,7 @@ TaskIndicator.inactive {
 }
 
 .-light-mode .task-text.completed {
-    color: #6c6f85;
+    color: #9893a5;
 }
 
 .task-text.active {
@@ -102,87 +111,82 @@ TaskIndicator.inactive {
 }
 
 .-light-mode .task-text.active {
-    color: #1e66f5;
+    color: #286983;
 }
 
 /* Progress Bar Timer */
 ProgressBarTimer {
-    dock: bottom;
-    height: 5;
+    height: 9;
     width: 100%;
     padding: 0 1;
-    border-top: solid #494d64;
-    background: #24273a;
+    margin: 1;
+    border: solid #494d64;
 }
 
 .-light-mode ProgressBarTimer {
-    border-top: solid #ccd0da;
-    background: #eff1f5;
+    border: solid #dcd0c5;
 }
 
-#progress-container {
+/* Duration indicators row - evenly spaced */
+#duration-row {
     height: 3;
     width: 100%;
-    margin-top: 1;
 }
 
-#progress-bar {
-    height: 1;
-    width: 100%;
+DurationIndicator {
+    width: 1fr;
+    height: 3;
+    content-align: center middle;
+}
+
+DurationIndicator.dim {
     background: #363a4f;
-}
-
-.-light-mode #progress-bar {
-    background: #e6e9ef;
-}
-
-#progress-fill {
-    height: 1;
-}
-
-.duration-indicator {
-    width: auto;
-    height: 1;
     color: #a5adcb;
 }
 
-.-light-mode .duration-indicator {
-    color: #6c6f85;
+DurationIndicator.bright {
+    background: #8aadf4;
+    color: #24273a;
 }
 
-.duration-indicator.active {
-    color: #8aadf4;
-    text-style: bold;
-}
-
-.-light-mode .duration-indicator.active {
-    color: #1e66f5;
-}
-
-.duration-indicator.faded {
+DurationIndicator.faded {
+    background: #363a4f;
     color: #494d64;
 }
 
-.-light-mode .duration-indicator.faded {
-    color: #ccd0da;
+.-light-mode DurationIndicator.dim {
+    background: #f2e9e1;
+    color: #797593;
 }
 
-/* Help Text */
-#help {
-    height: auto;
-    padding: 1;
-    margin: 1;
-    border: solid #494d64;
+.-light-mode DurationIndicator.bright {
+    background: #286983;
+    color: #faf4ed;
+}
+
+.-light-mode DurationIndicator.faded {
+    background: #f2e9e1;
+    color: #dcd0c5;
+}
+
+/* Progress bar track */
+#progress-bar {
+    width: 100%;
+    height: 3;
+    margin-top: 1;
+}
+
+/* Timer status text */
+#timer-status {
+    height: 1;
+    width: 100%;
+    text-align: center;
     color: #a5adcb;
+    margin-top: 1;
 }
 
-.-light-mode #help {
-    border: solid #ccd0da;
-    color: #6c6f85;
-}
-
-.dimmed {
-    opacity: 0.3;
+.-light-mode #timer-status {
+    color: #797593;
 }
 
 /* Modal Dialogs */
@@ -191,16 +195,44 @@ StartTimerConfirmScreen {
 }
 
 StartTimerConfirmScreen #dialog {
-    width: 60;
+    width: 50;
     height: auto;
-    border: solid #eed49f;
+    border: solid #494d64;
     background: #24273a;
-    padding: 1;
+    padding: 1 2;
 }
 
 .-light-mode StartTimerConfirmScreen #dialog {
-    border: solid #df8e1d;
-    background: #eff1f5;
+    border: solid #dcd0c5;
+    background: #faf4ed;
+}
+
+#task-info {
+    width: 100%;
+    text-align: center;
+    color: #cad3f5;
+}
+
+.-light-mode #task-info {
+    color: #575279;
+}
+
+#timer-info {
+    width: 100%;
+    text-align: center;
+    color: #a5adcb;
+    margin-top: 1;
+}
+
+.-light-mode #timer-info {
+    color: #797593;
+}
+
+#confirm-hints {
+    width: 100%;
+    text-align: center;
+    color: #a5adcb;
+    margin-top: 1;
 }
 
 TaskInputScreen {
@@ -210,14 +242,14 @@ TaskInputScreen {
 TaskInputScreen #dialog {
     width: 60;
     height: auto;
-    border: solid #a6da95;
+    border: solid #494d64;
     background: #24273a;
     padding: 1;
 }
 
 .-light-mode TaskInputScreen #dialog {
-    border: solid #40a02b;
-    background: #eff1f5;
+    border: solid #dcd0c5;
+    background: #faf4ed;
 }
 
 #message {
