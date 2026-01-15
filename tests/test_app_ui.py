@@ -75,9 +75,9 @@ async def test_edit_task_mark_complete():
     ("key", "check_screen_stack"),
     [
         ("2", True),
-        ("r", False),
+        ("s", False),
     ],
-    ids=["edit-blocked", "roll-blocked"],
+    ids=["edit-blocked", "start-blocked"],
 )
 async def test_action_blocked_during_timer(key, check_screen_stack):
     state = _fresh_state()
@@ -95,7 +95,7 @@ async def test_action_blocked_during_timer(key, check_screen_stack):
             assert app.state.timer.remaining_seconds == initial_remaining
 
 
-async def test_roll_no_incomplete_tasks():
+async def test_start_no_incomplete_tasks():
     state = _fresh_state()
     for task in state.tasks:
         task.text = "Task"
@@ -104,59 +104,53 @@ async def test_roll_no_incomplete_tasks():
         app = PaperTodoApp()
         async with app.run_test() as pilot:
             await pilot.pause()
-            await pilot.press("r")
+            await pilot.press("s")
             await pilot.pause(delay=0.5)
             assert not app.state.timer.running
 
 
 @pytest.mark.parametrize(
-    ("duration_roll", "expected_minutes", "is_break"),
+    ("duration_index", "expected_minutes", "is_break"),
     [
-        (3, 30, False),
-        (6, 10, True),
+        (2, 30, False),
+        (5, 10, True),
     ],
     ids=["task-timer", "break-timer"],
 )
-async def test_roll_with_confirmation_start(duration_roll, expected_minutes, is_break):
+async def test_start_with_confirmation(duration_index, expected_minutes, is_break):
     state = _fresh_state()
     state.tasks[0].text = "Test task"
     state.tasks[0].completed = False
-    task_rolls = [1] * 11
-    duration_rolls = [duration_roll] * 11
     with (
         patch("paper_todo.app.load_state", return_value=state),
-        patch("paper_todo.app.roll_from_options", side_effect=task_rolls + duration_rolls),
+        patch("random.choice", side_effect=[0, duration_index]),
     ):
         app = PaperTodoApp()
         async with app.run_test() as pilot:
             await pilot.pause()
-            with patch.object(app, "start_timer_worker") as mock_start:
-                await pilot.press("r")
-                await pilot.pause(delay=3.0)
-                assert len(pilot.app.screen_stack) == 2
-                await pilot.click("#start")
-                await pilot.pause()
-                assert app.state.timer.running
-                assert app.state.timer.is_break is is_break
-                assert app.state.timer.remaining_seconds == expected_minutes * 60
-                mock_start.assert_called_once()
+            await pilot.press("s")
+            await pilot.pause(delay=5.0)
+            assert len(pilot.app.screen_stack) == 2
+            await pilot.click("#start")
+            await pilot.pause(delay=1.0)
+            assert app.state.timer.running
+            assert app.state.timer.is_break is is_break
+            assert app.state.timer.remaining_seconds == expected_minutes * 60
 
 
-async def test_roll_with_confirmation_cancel():
+async def test_start_with_confirmation_cancel():
     state = _fresh_state()
     state.tasks[0].text = "Test task"
     state.tasks[0].completed = False
-    task_rolls = [1] * 11
-    duration_rolls = [3] * 11
     with (
         patch("paper_todo.app.load_state", return_value=state),
-        patch("paper_todo.app.roll_from_options", side_effect=task_rolls + duration_rolls),
+        patch("random.choice", side_effect=[0, 2]),
     ):
         app = PaperTodoApp()
         async with app.run_test() as pilot:
             await pilot.pause()
-            await pilot.press("r")
-            await pilot.pause(delay=3.0)
+            await pilot.press("s")
+            await pilot.pause(delay=5.0)
             await pilot.click("#cancel")
             await pilot.pause()
             assert not app.state.timer.running
