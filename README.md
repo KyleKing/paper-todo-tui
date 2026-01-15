@@ -1,5 +1,7 @@
 # Paper TODO TUI
 
+![.github/assets/demo.gif](.github/assets/demo.gif)
+
 Dice-based TODO application inspired by [Paper Apps TODO](https://gladdendesign.com/products/paper-apps-todo)
 
 ## Features
