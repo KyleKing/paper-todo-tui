@@ -44,7 +44,7 @@
 #   Show                            Show the subsequent commands in the output
 
 Output .github/assets/demo.gif
-Set PlaybackSpeed 0.5
+Set PlaybackSpeed 2.0
 Set TypingSpeed 50ms
 
 Set Theme "SpaceGray Eighties"
@@ -64,38 +64,35 @@ Show
 Type `uv run paper-todo`  Enter  Sleep 2s
 
 # Add first task
-Type "1"  Sleep 500ms
+Type "1"  Sleep 750ms
 Type "Review pull requests"  Enter  Sleep 1s
 
 # Add second task
-Type "2"  Sleep 500ms
-Type "Write documentation"  Enter  Sleep 1s
+Type "2"  Sleep 250ms
+Type "Write documentation"  Enter  Sleep 500ms
 
 # Add third task
-Type "3"  Sleep 500ms
-Type "Fix bug in timer"  Enter  Sleep 1s
+Type "3"  Sleep 250ms
+Type "Fix bug in timer"  Enter  Sleep 500ms
 
 # Add fourth task
-Type "4"  Sleep 500ms
-Type "Update dependencies"  Enter  Sleep 1s
+Type "4"  Sleep 250ms
+Type "Update dependencies"  Enter  Sleep 500ms
 
 # Show the tasks for a moment
-Sleep 2s
+Sleep 1s
 
-# Roll for time
-Type "T"  Sleep 2s
+# Randomly select a Time and Task
+Type "s"  Sleep 10s
 
-# Start the timer
-Type " "  Sleep 3s
-
-# Let timer run for a few seconds
-Sleep 5s
+# Accept the task and let the timer run
+Enter  Sleep 4s
 
 # Complete the task
 Type "C"  Sleep 2s
 
 # Show final state
-Sleep 2s
+Sleep 1s
 
 # Quit
-Type "q"  Sleep 1s
+Type "q"  Sleep 500ms
