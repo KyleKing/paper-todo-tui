@@ -5,9 +5,9 @@ from pathlib import Path
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Footer, Header, Input, Label, Static
+from textual.widgets import Footer, Header, Input, Label, Static
 
 from paper_todo.animation import generate_knight_rider_frames, run_animation
 from paper_todo.models import MAX_TASKS, TASK_CHAR_LIMIT, AppState, Task
@@ -337,6 +337,11 @@ class StartTimerConfirmScreen(ModalScreen[bool]):
 
 
 class TaskInputScreen(ModalScreen[tuple[str, str] | None]):
+    BINDINGS = [
+        Binding("ctrl+d", "toggle_complete", "toggle"),
+        Binding("escape", "cancel", "cancel"),
+    ]
+
     def __init__(self, task_index: int, current_text: str, is_completed: bool) -> None:
         super().__init__()
         self.task_index = task_index
@@ -353,34 +358,23 @@ class TaskInputScreen(ModalScreen[tuple[str, str] | None]):
                 max_length=TASK_CHAR_LIMIT,
                 id="task-input",
             )
-            with Horizontal(id="buttons"):
-                yield Button("Save", variant="success", id="save")
-                if self.is_completed:
-                    yield Button("Mark Incomplete", variant="warning", id="toggle")
-                else:
-                    yield Button("Mark Complete", variant="warning", id="complete")
-                yield Button("Cancel", variant="default", id="cancel")
+            toggle_hint = "incomplete" if self.is_completed else "complete"
+            yield Label(
+                f"[dim]Enter[/dim] save   [dim]Ctrl+D[/dim] {toggle_hint}   [dim]Esc[/dim] cancel",
+                id="task-hints",
+            )
 
     def on_mount(self) -> None:
         self.query_one(Input).focus()
 
-    @on(Button.Pressed, "#save")
-    def save_task(self) -> None:
+    def action_toggle_complete(self) -> None:
         input_widget = self.query_one(Input)
-        self.dismiss(("save", input_widget.value))
+        if self.is_completed:
+            self.dismiss(("toggle", input_widget.value))
+        else:
+            self.dismiss(("complete", input_widget.value))
 
-    @on(Button.Pressed, "#complete")
-    def complete_task(self) -> None:
-        input_widget = self.query_one(Input)
-        self.dismiss(("complete", input_widget.value))
-
-    @on(Button.Pressed, "#toggle")
-    def toggle_task(self) -> None:
-        input_widget = self.query_one(Input)
-        self.dismiss(("toggle", input_widget.value))
-
-    @on(Button.Pressed, "#cancel")
-    def cancel_edit(self) -> None:
+    def action_cancel(self) -> None:
         self.dismiss(None)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
