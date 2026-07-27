@@ -338,7 +338,7 @@ class StartTimerConfirmScreen(ModalScreen[bool]):
 
 class TaskInputScreen(ModalScreen[tuple[str, str] | None]):
     BINDINGS = [
-        Binding("ctrl+d", "toggle_complete", "toggle"),
+        Binding("ctrl+d", "toggle_complete", "toggle", priority=True),
         Binding("escape", "cancel", "cancel"),
     ]
 

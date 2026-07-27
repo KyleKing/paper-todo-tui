@@ -33,7 +33,7 @@ async def test_edit_task_dialog():
             for char in "Test task":
                 await pilot.press(char)
             await pilot.pause()
-            await pilot.click("#save")
+            await pilot.press("enter")
             await pilot.pause()
             assert app.state.tasks[0].text == "Test task"
 
@@ -52,7 +52,7 @@ async def test_edit_task_cancel():
             for char in "New text":
                 await pilot.press(char)
             await pilot.pause()
-            await pilot.click("#cancel")
+            await pilot.press("escape")
             await pilot.pause()
             assert app.state.tasks[0].text == original_text
 
@@ -66,7 +66,7 @@ async def test_edit_task_mark_complete():
             await pilot.pause()
             await pilot.press("1")
             await pilot.pause(delay=0.5)
-            await pilot.click("#complete")
+            await pilot.press("ctrl+d")
             await pilot.pause()
             assert app.state.tasks[0].completed is True
 

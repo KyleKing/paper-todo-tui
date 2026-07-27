@@ -1,0 +1,7 @@
+1. Publish to PyPi
+1. Update with instructions to install with uvx/mise --global
+
+## 2026-07-27
+
+1. No GitHub Actions workflows exist (.github only holds assets/), so CI has never run: add a workflow that runs `uv run pytest`
+1. Decide whether to adopt calcipy_template via copier (no linting, typing, or task runner configured today)
